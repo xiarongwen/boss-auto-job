@@ -1,0 +1,422 @@
+#!/usr/bin/env python3
+"""
+Boss Auto Job CLI
+
+Standalone command-line tool for BOSS Zhipin job automation.
+No dependency on any Agent framework — pure Python + Camoufox.
+
+Usage:
+  # Search jobs
+  boss search "产品经理" --city 深圳 --area 南山 --pages 2
+
+  # Search + match against resume
+  boss search "AI前端" --city 深圳 --match --top 5
+
+  # Search + match + generate greetings + send
+  boss search "Agent应用开发" --city 深圳 --match --send --top 3
+
+  # Send a specific greeting
+  boss send <job_id> "你好，我对这个职位很感兴趣"
+
+  # Show resume
+  boss resume
+
+  # Show city codes
+  boss cities
+"""
+
+import argparse
+import json
+import sys
+import time
+from datetime import datetime
+from pathlib import Path
+
+# ============================================================
+# Config
+# ============================================================
+
+AUTH_FILE = Path.home() / '.agent-browser' / 'auth' / 'boss-zhipin.json'
+RESUME_FILE = Path.home() / '.hermes' / 'credentials' / 'resume.txt'
+
+CITY_CODES = {
+    "北京": "101010100", "上海": "101020100", "深圳": "101280600",
+    "杭州": "101210100", "成都": "101270100", "广州": "101280100",
+    "南京": "101190100", "武汉": "101200100", "西安": "101110100",
+    "苏州": "101190400", "天津": "101030100", "重庆": "101040100",
+}
+
+MATCH_KEYWORDS = [
+    "React", "TypeScript", "AI", "Agent", "前端", "Vue", "Node.js", "Webpack",
+    "工作流", "Copilot", "RAG", "大模型", "对话", "工作台", "低代码", "组件",
+    "JavaScript", "Python", "工程化", "性能优化", "平台", "智能体",
+]
+
+
+# ============================================================
+# Output helpers
+# ============================================================
+
+def log(icon, msg):
+    ts = datetime.now().strftime('%H:%M:%S')
+    print(f"[{ts}] {icon} {msg}", file=sys.stderr)
+
+
+def err(msg):
+    log("❌", msg)
+
+
+def ok(msg):
+    log("✅", msg)
+
+
+def warn(msg):
+    log("⚠️", msg)
+
+
+def info(msg):
+    log("📋", msg)
+
+
+# ============================================================
+# Core functions
+# ============================================================
+
+def search_jobs(query: str, city_code: str, pages: int = 1) -> list:
+    """Search jobs using Camoufox."""
+    import subprocess
+
+    info(f'Searching "{query}" in {city_code}, {pages} page(s)...')
+
+    # Reuse search_camoufox.py
+    script = Path(__file__).parent / 'scripts' / 'search_camoufox.py'
+    if not script.exists():
+        # Fallback: inline Camoufox search
+        return _search_inline(query, city_code, pages)
+
+    result = subprocess.run(
+        [sys.executable, str(script), query, f'--city={city_code}', f'--pages={str(pages)}'],
+        capture_output=True, text=True, timeout=180
+    )
+
+    output = result.stdout + result.stderr
+
+    if '===JOBS_JSON_START===' in output:
+        start = output.index('===JOBS_JSON_START===') + len('===JOBS_JSON_START===')
+        end = output.index('===JOBS_JSON_END===')
+        try:
+            jobs = json.loads(output[start:end].strip())
+            ok(f'Found {len(jobs)} jobs')
+            return jobs
+        except json.JSONDecodeError:
+            pass
+
+    # Fallback
+    return _search_inline(query, city_code, pages)
+
+
+def _search_inline(query: str, city_code: str, pages: int) -> list:
+    """Inline Camoufox search (no subprocess)."""
+    from camoufox.sync_api import Camoufox
+
+    all_jobs = []
+    with Camoufox(humanize=True, geoip=True, os="macos", block_images=False) as browser:
+        for page_num in range(1, pages + 1):
+            page = browser.new_page()
+            try:
+                page.goto(
+                    f"https://www.zhipin.com/web/geek/job?query={query}&city={city_code}&page={page_num}",
+                    wait_until="domcontentloaded", timeout=20000
+                )
+                time.sleep(4)
+
+                result = page.evaluate("""
+                    (q) => fetch('/wapi/zpgeek/search/joblist.json?scene=1&query=' + encodeURIComponent(q)
+                        + '&city=QUERY_CITY&page=QUERY_PAGE&pageSize=30')
+                        .then(r => r.json())
+                        .catch(e => ({error: e.message}))
+                """.replace("QUERY_CITY", city_code).replace("QUERY_PAGE", str(page_num)), query)
+
+                code = result.get("code")
+                if code == 0:
+                    jobs = result.get("zpData", {}).get("jobList", [])
+                    ok(f'Page {page_num}: {len(jobs)} jobs')
+                    for j in jobs:
+                        all_jobs.append({
+                            "job_id": j.get("encryptJobId") or j.get("jobId"),
+                            "title": j.get("jobName", ""),
+                            "company": j.get("brandName", ""),
+                            "salary": j.get("salaryDesc", ""),
+                            "location": f"{j.get('cityName', '')} {j.get('areaDistrict', '')}".strip(),
+                            "experience": j.get("jobExperience", ""),
+                            "degree": j.get("jobDegree", ""),
+                            "skills": j.get("skills", []),
+                            "boss_name": j.get("bossName", ""),
+                            "boss_title": j.get("bossTitle", ""),
+                        })
+                elif code in (36, 32):
+                    err(f'Code {code}: {result.get("message", "")} — STOP')
+                    break
+                else:
+                    warn(f'Code {code}: {result.get("message", result.get("error", ""))[:60]}')
+            except Exception as e:
+                err(f'Exception: {e}')
+            finally:
+                try: page.close()
+                except: pass
+            if page_num < pages:
+                time.sleep(5)
+
+    seen = set()
+    unique = []
+    for j in all_jobs:
+        if j["job_id"] not in seen:
+            seen.add(j["job_id"])
+            unique.append(j)
+    ok(f'Total: {len(unique)} unique jobs')
+    return unique
+
+
+def match_jobs(jobs: list, resume: str, top_n: int = 10) -> list:
+    """Score jobs against resume using keyword matching."""
+    info(f'Matching {len(jobs)} jobs against resume ({len(resume)} chars)...')
+
+    for j in jobs:
+        score = 0
+        title = j.get("title", "").lower()
+        skills = " ".join(j.get("skills", [])).lower()
+        combined = f"{title} {skills} {j.get('company', '')}".lower()
+
+        for kw in MATCH_KEYWORDS:
+            if kw.lower() in combined:
+                score += 8
+            if kw.lower() in resume.lower() and kw.lower() in combined:
+                score += 5  # Bonus: both resume and job mention it
+
+        # Experience match
+        exp = j.get("experience", "")
+        if "3-5" in exp or "经验不限" in exp:
+            score += 15
+        elif "5-10" in exp:
+            score += 10
+        elif "1-3" in exp:
+            score += 5
+
+        # Degree
+        if "本科" in j.get("degree", "") or "学历不限" in j.get("degree", ""):
+            score += 5
+
+        # Frontend-specific bonus
+        if any(kw.lower() in combined for kw in ["前端", "frontend", "react", "vue"]):
+            score += 10
+
+        j["match_score"] = min(score, 100)
+
+    jobs.sort(key=lambda x: x.get("match_score", 0), reverse=True)
+    return jobs[:top_n]
+
+
+def send_greeting(job_id: str, greeting: str) -> dict:
+    """Send greeting to a recruiter."""
+    import subprocess
+
+    script = Path(__file__).parent / 'scripts' / 'send_camoufox.py'
+    if not script.exists():
+        return {"success": False, "error": "send_camoufox.py not found"}
+
+    result = subprocess.run(
+        [sys.executable, str(script), job_id, greeting],
+        capture_output=True, text=True, timeout=120
+    )
+
+    output = result.stdout + result.stderr
+    if "消息发送成功" in output:
+        return {"success": True}
+    return {"success": False, "error": output[-200:]}
+
+
+def load_resume() -> str:
+    if RESUME_FILE.exists():
+        return RESUME_FILE.read_text().strip()
+    return ""
+
+
+def print_jobs_table(jobs: list, show_score: bool = False):
+    """Pretty-print jobs as a table."""
+    print()
+    print(f"{'#':>3}  {'Score' if show_score else '':>5}  {'Title':<40}  {'Company':<20}  {'Salary':<15}  {'Area'}")
+    print("-" * 120)
+    for i, j in enumerate(jobs):
+        score = f"{j.get('match_score', 0):3d}" if show_score else ""
+        title = j.get("title", "")[:38]
+        company = j.get("company", "")[:18]
+        salary = j.get("salary", "")[:13]
+        location = j.get("location", "")
+        emoji = "🔥" if show_score and j.get("match_score", 0) >= 60 else "  "
+        print(f"{i+1:3d}  {score:>5}  {emoji}{title:<38}  {company:<20}  {salary:<15}  {location}")
+    print()
+
+
+def print_job_detail(j: dict, idx: int = 0):
+    """Print detailed job info."""
+    skills = ", ".join(j.get("skills", [])[:6]) or "无"
+    score = j.get("match_score", "")
+    score_str = f" [{score}分]" if score else ""
+    emoji = "🔥" if score and score >= 60 else "✅" if score and score >= 40 else ""
+
+    print(f"\n  {idx}. {emoji}{score_str} {j.get('title', '')}")
+    print(f"     🏢 {j.get('company', '')}")
+    print(f"     💰 {j.get('salary', '')}")
+    print(f"     📍 {j.get('location', '')} | 📋 {j.get('experience', '')} | {j.get('degree', '')}")
+    print(f"     🛠️ {skills}")
+    print(f"     👤 {j.get('boss_name', '')} ({j.get('boss_title', '')})")
+    print(f"     🔑 {j.get('job_id', '')}")
+
+
+# ============================================================
+# CLI
+# ============================================================
+
+def cmd_search(args):
+    """Search and optionally match/send."""
+    city_code = CITY_CODES.get(args.city, args.city)
+    if not city_code or len(city_code) < 5:
+        # Try direct code
+        city_code = args.city
+
+    jobs = search_jobs(args.query, city_code, args.pages)
+
+    if not jobs:
+        err("No jobs found")
+        sys.exit(1)
+
+    # Area filter
+    if args.area:
+        jobs = [j for j in jobs if args.area in j.get("location", "")]
+        info(f'Filtered to {len(jobs)} jobs in {args.area}')
+
+    if not jobs:
+        err(f"No jobs found in {args.area}")
+        sys.exit(1)
+
+    # Match
+    if args.match:
+        resume = load_resume()
+        if not resume:
+            err("No resume found. Create ~/.hermes/credentials/resume.txt")
+            sys.exit(1)
+        jobs = match_jobs(jobs, resume, args.top or 10)
+        print_jobs_table(jobs, show_score=True)
+        for i, j in enumerate(jobs):
+            print_job_detail(j, i + 1)
+    else:
+        print_jobs_table(jobs[:args.top or 20])
+
+    # Send
+    if args.send:
+        if not args.match:
+            warn("--send requires --match to rank jobs first")
+            return
+
+        sent = 0
+        for j in jobs[:args.send_limit or 3]:
+            # Generate simple greeting
+            resume = load_resume()
+            greeting = f"您好！{resume[:50]}对贵司{j.get('title', '')}岗位很感兴趣，方便进一步沟通吗？"
+            info(f'Sending to {j.get("company", "")} ({j.get("boss_name", "")})...')
+            result = send_greeting(j["job_id"], greeting)
+            if result.get("success"):
+                ok(f'Sent to {j.get("company", "")}')
+                sent += 1
+            else:
+                err(f'Failed: {result.get("error", "")[:60]}')
+            time.sleep(5)
+
+        ok(f'Done! Sent {sent}/{min(len(jobs), args.send_limit or 3)} greetings')
+
+    # Output JSON
+    if args.json:
+        print(json.dumps(jobs, ensure_ascii=False, indent=2))
+
+
+def cmd_send(args):
+    """Send a specific greeting."""
+    result = send_greeting(args.job_id, args.message)
+    if result.get("success"):
+        ok("Greeting sent!")
+    else:
+        err(f"Failed: {result.get('error', '')}")
+
+
+def cmd_resume(args):
+    """Show resume."""
+    resume = load_resume()
+    if resume:
+        print(resume)
+    else:
+        err(f"No resume found at {RESUME_FILE}")
+        info("Create it with: echo 'your resume' > ~/.hermes/credentials/resume.txt")
+
+
+def cmd_cities(args):
+    """Show city codes."""
+    print("\nCity codes for BOSS Zhipin:\n")
+    for name, code in CITY_CODES.items():
+        print(f"  {name:6s}  {code}")
+    print()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog='boss',
+        description='Boss Auto Job - BOSS直聘自动求职工具 (Camoufox stealth)',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  boss search "产品经理" --city 深圳 --area 南山
+  boss search "AI前端" --city 深圳 --match --top 5
+  boss search "Agent开发" --match --send --top 3
+  boss send <job_id> "你好，我对这个职位很感兴趣"
+  boss resume
+  boss cities
+        """
+    )
+    sub = parser.add_subparsers(dest='command', help='Available commands')
+
+    # search
+    p_search = sub.add_parser('search', help='Search jobs on BOSS Zhipin')
+    p_search.add_argument('query', help='Job keyword')
+    p_search.add_argument('--city', default='深圳', help='City name or code (default: 深圳)')
+    p_search.add_argument('--area', help='Filter by district, e.g. 南山')
+    p_search.add_argument('--pages', type=int, default=1, help='Pages to search (default: 1)')
+    p_search.add_argument('--match', action='store_true', help='Match against resume')
+    p_search.add_argument('--top', type=int, default=10, help='Top N results (default: 10)')
+    p_search.add_argument('--send', action='store_true', help='Send greetings to top matches')
+    p_search.add_argument('--send-limit', type=int, default=3, help='Max greetings to send (default: 3)')
+    p_search.add_argument('--json', action='store_true', help='Output JSON')
+    p_search.set_defaults(func=cmd_search)
+
+    # send
+    p_send = sub.add_parser('send', help='Send a greeting to a recruiter')
+    p_send.add_argument('job_id', help='encryptJobId from search results')
+    p_send.add_argument('message', help='Greeting message')
+    p_send.set_defaults(func=cmd_send)
+
+    # resume
+    p_resume = sub.add_parser('resume', help='Show current resume')
+    p_resume.set_defaults(func=cmd_resume)
+
+    # cities
+    p_cities = sub.add_parser('cities', help='Show available city codes')
+    p_cities.set_defaults(func=cmd_cities)
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        sys.exit(0)
+
+    args.func(args)
+
+
+if __name__ == '__main__':
+    main()
