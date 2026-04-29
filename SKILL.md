@@ -1,6 +1,6 @@
 ---
 name: boss-auto-job
-description: Use when automating workflows on web platforms that require login, session persistence, data scraping, multi-agent content analysis, and automated actions. Covers job platforms, social networks, e-commerce, and any site needing cookie-based session management plus AI-powered bulk processing.
+description: "BOSS直聘自动求职: Camoufox隐身搜索→多Agent匹配→生成打招呼→自动投递。4层反爬绕过(TLS/行为/网关/风控)，AST解密zp_stoken，Code 36/32安全停止机制。"
 ---
 
 # BOSS Auto Job
@@ -562,6 +562,10 @@ Key findings:
 - **Navigation timeout**: Use `wait_until="networkidle"` and increase timeout to 30s for BOSS pages
 - **evaluate after navigation fails**: Page.evaluate() throws "Execution context was destroyed" if page navigated during evaluation. Always wait for `networkidle` before evaluating.
 - **About:blank fallback**: If page.goto() lands on about:blank, the cookies are likely expired or session is invalid. Re-run `refresh_cookies.py` or ask user to re-export cookies.
+- **Camoufox contexts is empty**: `Camoufox()` returns a standard Playwright `Browser` object, but `browser.contexts` is an empty list at start. Use `browser.new_page()` directly — NOT `browser.contexts[0].new_page()`. The latter throws `IndexError: list index out of range`.
+- **Camoufox page timeout on second query**: When calling multiple `page.goto()` in sequence, the second one may fail with `TargetClosedError`. Fix: create a new page per query with `page = browser.new_page()` and `page.close()` after each, instead of reusing one page.
+- **Camoufox `wait_until` safety**: Use `wait_until="domcontentloaded"` instead of `wait_until="networkidle"` for BOSS pages. The `networkidle` timeout is unreliable with BOSS's continuous polling scripts (warlock, patas, heartbeat).
+- **GitHub repo published**: The skill is published at https://github.com/xiarongwen/boss-auto-job
 
 ## Security Notes
 

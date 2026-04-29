@@ -4,7 +4,7 @@
 
 基于 **Camoufox**（C++ 级 Firefox 指纹修改）绕过 BOSS 直聘全部 4 层反爬虫检测。
 
-**三种使用方式：** CLI 命令行 / MCP Server / Python 脚本
+**支持所有 Agent CLI：** Claude Code / Cursor / Codex / OpenCode / Hermes Agent
 
 ---
 
@@ -14,8 +14,8 @@
 - 🧠 **简历匹配** — 按技能/经验/学历/行业多维度打分
 - 📤 **自动发送** — 定制打招呼语一键发送
 - 🛡️ **完全隐身** — Camoufox C++ 级指纹修改，通过所有反 bot 检测
-- 🔌 **MCP 支持** — Claude Code / Cursor / 任何 MCP 客户端即插即用
-- ⌨️ **CLI 工具** — 不依赖任何 Agent 框架，纯命令行使用
+- 🤖 **Agent 原生** — `AGENTS.md` / `CLAUDE.md` / `.cursorrules` 即插即用
+- ⌨️ **CLI 工具** — 不依赖任何 Agent 框架，纯命令行也能用
 - 🔐 **安全机制** — Code 36/32 自动停止，不导致账户封禁
 
 ## 🚀 快速开始
@@ -36,10 +36,26 @@ echo "你的简历简介" > ~/.hermes/credentials/resume.txt
 
 ### 3. 使用
 
-#### 方式一：CLI 命令行（最简单）
+#### 方式一：在 Claude Code / Cursor 中使用
+
+把这个仓库克隆到你的项目目录：
 
 ```bash
-# 搜索深圳南山区的 Agent 岗位
+git clone https://github.com/xiarongwen/boss-auto-job.git
+```
+
+然后直接对 Agent 说：
+
+```
+帮我搜索深圳南山区的 Agent 应用开发岗位
+```
+
+Agent 会自动读取 `CLAUDE.md` 或 `.cursorrules`，知道怎么用 `boss` CLI。
+
+#### 方式二：直接命令行
+
+```bash
+# 搜索
 ./boss search "Agent应用开发" --city 深圳 --area 南山
 
 # 搜索 + 匹配简历
@@ -48,7 +64,7 @@ echo "你的简历简介" > ~/.hermes/credentials/resume.txt
 # 搜索 + 匹配 + 自动发送
 ./boss search "AI应用开发" --city 深圳 --match --send --top 3
 
-# 直接发送消息
+# 发送消息
 ./boss send <job_id> "你好，我对这个职位很感兴趣"
 
 # 查看简历
@@ -58,58 +74,35 @@ echo "你的简历简介" > ~/.hermes/credentials/resume.txt
 ./boss cities
 ```
 
-#### 方式二：MCP Server（Claude Code / Cursor）
-
-在你的 MCP 配置中添加：
-
-```json
-{
-  "mcpServers": {
-    "boss-auto-job": {
-      "command": "python",
-      "args": ["/path/to/boss-auto-job/mcp_server.py"]
-    }
-  }
-}
-```
-
-然后在 Claude Code / Cursor 中直接使用：
-
-```
-帮我搜索深圳南山区的 Agent 应用开发岗位
-```
-
-MCP 工具列表：
-
-| 工具 | 说明 |
-|------|------|
-| `boss_search_jobs` | 搜索职位（支持城市、区域过滤） |
-| `boss_send_greeting` | 发送打招呼语 |
-| `boss_match_resume` | 简历匹配打分 |
-| `boss_get_resume` | 获取简历 |
-| `boss_city_codes` | 查看城市代码 |
-
 #### 方式三：Python 脚本
 
 ```bash
-# 搜索
-python scripts/search_camoufox.py "产品经理" --city=101280600 --pages=3
-
-# 一键流水线
+python scripts/search_camoufox.py "Python" --city=101280600
 python scripts/boss_apply.py "产品经理" --send
-
-# 发送
-python scripts/send_camoufox.py <job_id> "你好"
+python scripts/send_camoufox.py <job_id> "消息"
 ```
+
+## 🤖 Agent 兼容性
+
+| Agent CLI | 配置文件 | 状态 |
+|-----------|---------|------|
+| Claude Code | `CLAUDE.md` | ✅ 自动读取 |
+| Cursor | `.cursorrules` | ✅ 自动读取 |
+| Codex CLI | `AGENTS.md` | ✅ 自动读取 |
+| OpenCode | `AGENTS.md` | ✅ 自动读取 |
+| Hermes Agent | `SKILL.md` | ✅ 自动加载 |
+| 其他 Agent | `AGENTS.md` | ✅ 通用格式 |
 
 ## 📁 项目结构
 
 ```
 boss-auto-job/
 ├── boss                       # ⌨️ CLI 入口（chmod +x）
-├── mcp_server.py              # 🔌 MCP Server
+├── AGENTS.md                  # 🤖 Agent 通用技能说明
+├── CLAUDE.md                  # Claude Code 配置（= AGENTS.md）
+├── .cursorrules               # Cursor 配置（= AGENTS.md）
+├── SKILL.md                   # Hermes Agent 技能文档
 ├── README.md                  # 📖 本文件
-├── SKILL.md                   # 完整技术文档
 ├── REVERSE_ENGINEERING.md     # BOSS 风控逆向分析
 ├── BYPASS_SOLUTION.md         # 绕过方案（8个开源项目）
 ├── requirements.txt           # Python 依赖
@@ -120,7 +113,7 @@ boss-auto-job/
     ├── send_camoufox.py       # 📤 Camoufox 发送
     ├── match.py               # 多 Agent 匹配
     ├── generate.py            # 生成打招呼语
-    └── ...                    # 其他 legacy 脚本
+    └── ...                    # 其他脚本
 ```
 
 ## 🛡️ BOSS 风控机制
@@ -170,7 +163,8 @@ BOSS 直聘采用 4 层纵深防御：
 
 ## 📚 文档
 
-- [SKILL.md](./SKILL.md) — 完整技术文档
+- [AGENTS.md](./AGENTS.md) — Agent 技能说明（所有 Agent 通用）
+- [SKILL.md](./SKILL.md) — Hermes Agent 专用技能文档
 - [REVERSE_ENGINEERING.md](./REVERSE_ENGINEERING.md) — 风控逆向分析
 - [BYPASS_SOLUTION.md](./BYPASS_SOLUTION.md) — 绕过方案
 
