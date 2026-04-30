@@ -70,14 +70,31 @@ def main():
 
     greeting = args.greeting
     if args.auto:
+        # Use LLM-powered greeting generator instead of fixed template
+        import subprocess
+        gen_script = Path(__file__).parent / 'generate_greeting.py'
         resume_path = Path.home() / '.hermes' / 'credentials' / 'resume.txt'
-        if resume_path.exists():
+        if not gen_script.exists() or not resume_path.exists():
+            print("[auto] ❌ Missing generate_greeting.py or resume.txt")
+            sys.exit(1)
+
+        print("[auto] Generating personalized greeting via LLM...")
+        # Build minimal JD dict from what we know
+        jd = {"title": "", "company": "", "requirements": [], "jd_text": f"Job ID: {args.job_id}"}
+        jd_json = json.dumps(jd, ensure_ascii=False)
+        result = subprocess.run(
+            [sys.executable, str(gen_script), '--stdin'],
+            input=jd_json, capture_output=True, text=True, timeout=60
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            greeting = result.stdout.strip()
+            print(f"[auto] Generated: {greeting}")
+        else:
+            print(f"[auto] ⚠️ Generator failed: {result.stderr[:200]}")
+            # Fallback: read resume and make a simple greeting
             resume = resume_path.read_text().strip()
             greeting = f"您好！{resume[:50]}对贵司这个岗位很感兴趣，方便进一步沟通吗？"
-            print(f"[auto] Generated greeting: {greeting}")
-        else:
-            print("[auto] ❌ No resume found at ~/.hermes/credentials/resume.txt")
-            sys.exit(1)
+            print(f"[auto] Fallback: {greeting}")
 
     if not greeting:
         print("[error] No greeting provided. Use: python send_camoufox.py <job_id> \"your message\"")

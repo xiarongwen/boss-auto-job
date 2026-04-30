@@ -212,22 +212,44 @@ delegate_task(tasks=tasks)
 
 Collect all scores, sort descending. Default keep top 10.
 
-## Step 5: Generate Introduction
+## Step 5: Generate Introduction (LLM-Powered)
 
-Per target JD, delegate to subagent:
+**不再使用固定模板**。招呼语由 LLM 根据 JD 和简历的实际内容自动生成。
+
+### 独立使用
+```bash
+# 从 JD JSON 文件生成
+python scripts/generate_greeting.py --jd=job.json
+
+# 从 stdin 传入 JD
+echo '{"title":"AI工程师","company":"某科技","requirements":["Python","深度学习"],"jd_text":"负责..."}' | python scripts/generate_greeting.py --stdin
 ```
-Based on this JD and my resume, write a 100-word self-introduction
-in Chinese that highlights my most relevant experience.
 
-JD: {jd_text}
-Resume: {resume_content}
-
-Requirements:
-- Mention 2-3 specific matching skills/experiences
-- Show enthusiasm for this specific company/role
-- Keep it conversational, not robotic
-- Max 150 Chinese characters
+### LLM API 配置
+使用任意 OpenAI 兼容 API，通过环境变量配置：
+```bash
+export BOSS_LLM_API_KEY="sk-xxx"           # 或 OPENAI_API_KEY
+export BOSS_LLM_BASE_URL="https://api.openai.com/v1"  # 或 OPENAI_BASE_URL
+export BOSS_LLM_MODEL="gpt-4o-mini"        # 或 OPENAI_MODEL
 ```
+
+### 生成逻辑
+LLM 会分析 JD 中的具体要求和简历中的匹配亮点，生成个性化招呼语：
+- 从 JD 提取 2-3 个关键需求，与简历中的对应经验匹配
+- 语气自然真诚，不像固定模板那样千篇一律
+- 控制在 80-150 个中文字符
+- 如果 LLM API 不可用，自动降级为简单 fallback 模板
+
+### 在 boss_apply.py 流水线中自动生成
+```bash
+# 自动搜索 + 匹配 + LLM 生成招呼语
+python boss_apply.py "AI工程师"
+
+# 跳过招呼语生成（节省 API 调用）
+python boss_apply.py "AI工程师" --no-greeting
+```
+
+输出中的 `jobs_with_greetings` 字段已包含每个职位的个性化招呼语。
 
 ## Step 6: Send Application
 
@@ -262,7 +284,8 @@ boss-auto-job/
     search_browser.py         # Search via browser automation (legacy)
     search.py                 # requests-based search (deprecated)
     match.py                  # Multi-agent matching orchestrator
-    generate.py               # Introduction generator
+    generate_greeting.py        # LLM 招呼语生成器（核心）
+    generate.py               # 招呼语生成（调用 generate_greeting.py）
     send_final.py             # Message sender (legacy)
     refresh_cookies.py        # Cookie refresh tool
     login.py                  # Login helper
@@ -412,10 +435,10 @@ python send_camoufox.py <job_id> "你好，我对这个职位很感兴趣"
 ### Agent Workflow (使用 boss_apply.py)
 
 1. **运行搜索**: `python boss_apply.py "关键词" --send`
-2. **解析输出**: 从 `===SEARCH_RESULT===` 块提取数据
+2. **解析输出**: 从 `===SEARCH_RESULT===` 块提取 jobs_with_greetings（已包含个性化招呼语）
 3. **并行匹配**: 用 `delegate_task(tasks=batches)` 对每批3个职位打分
 4. **排名筛选**: 按分数排序，取 Top N
-5. **生成招呼语**: 用 `delegate_task(tasks=greeting_tasks)` 并行生成
+5. **使用预生成招呼语**: 无需再手动生成，直接用 jobs_with_greetings 中的 greeting 字段
 6. **发送消息**: 逐个调用 send_message()，间隔 3 秒
 
 ### 完整 Agent 代码模板
@@ -592,6 +615,30 @@ Key findings:
 9. **Partial cookie set** — `document.cookie` returns ~16 cookies (non-HttpOnly). HttpOnly cookies (`wt2`, `zp_at`, `wbg`) must come from the existing auth file. Merge fresh non-HttpOnly + stale HttpOnly cookies for best results.
 10. **Code 32 vs 36 cascade** — When automation is heavy, BOSS escalates: code 0 (normal) → 37 (env check) → 36 (account flagged) → 32 (temporarily banned). Stop at the first sign of 36. Don't push through to 32.
 - Respect robots.txt and terms of service
+
+## Cross-Agent CLI
+
+The project also has a standalone CLI (`boss`) and cross-agent config files:
+
+```
+boss-auto-job/
+  boss                  # CLI entry point (chmod +x, Python shebang)
+  AGENTS.md             # Agent-agnostic skill instructions
+  CLAUDE.md             # = AGENTS.md (Claude Code auto-reads)
+  .cursorrules          # = AGENTS.md (Cursor auto-reads)
+```
+
+**Usage from any Agent CLI:**
+```bash
+./boss search "Agent应用开发" --city 深圳 --area 南山 --match --top 5
+./boss search "AI前端" --city 深圳 --match --send
+./boss send <job_id> "你好"
+```
+
+**GitHub repo:** https://github.com/xiarongwen/boss-auto-job
+
+The CLI wraps search_camoufox.py and send_camoufox.py with a unified interface.
+AGENTS.md teaches any Agent CLI how to use the `boss` command.
 
 ## Testing Notes
 

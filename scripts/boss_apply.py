@@ -95,6 +95,51 @@ def save_jobs(jobs: list, query: str, city: str) -> Path:
     return path
 
 
+def generate_greetings(jobs: list, resume: str) -> list:
+    """Generate personalized greetings using LLM for each job."""
+    log('info', '开始 LLM 生成个性化招呼语...')
+    gen_script = SCRIPTS_DIR / 'generate_greeting.py'
+
+    if not gen_script.exists():
+        log('warn', 'generate_greeting.py 不存在，跳过招呼语生成')
+        return ['' for _ in jobs]
+
+    greetings = []
+    for i, job in enumerate(jobs):
+        jd_data = {
+            'title': job.get('title', ''),
+            'company': job.get('company', ''),
+            'requirements': job.get('requirements', []),
+            'jd_text': job.get('jd_text', ''),
+        }
+        jd_json = json.dumps(jd_data, ensure_ascii=False)
+        try:
+            result = subprocess.run(
+                [sys.executable, str(gen_script), '--stdin'],
+                input=jd_json, capture_output=True, text=True, timeout=60,
+                cwd=str(SCRIPTS_DIR)
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                greeting = result.stdout.strip()
+                greetings.append(greeting)
+                log('ok', f'[{i+1}/{len(jobs)}] {job.get("title","")} @ {job.get("company","")}')
+                log('info', f'  -> {greeting[:80]}...' if len(greeting) > 80 else f'  -> {greeting}')
+            else:
+                greetings.append('')
+                log('warn', f'[{i+1}/{len(jobs)}] 生成失败: {result.stderr[:100]}')
+        except subprocess.TimeoutExpired:
+            greetings.append('')
+            log('warn', f'[{i+1}/{len(jobs)}] 超时')
+        except Exception as e:
+            greetings.append('')
+            log('warn', f'[{i+1}/{len(jobs)}] 异常: {e}')
+
+        if i < len(jobs) - 1:
+            time.sleep(1)
+
+    return greetings
+
+
 def main():
     parser = argparse.ArgumentParser(description='BOSS Zhipin Auto Apply (Camoufox)')
     parser.add_argument('query', help='搜索关键词')
@@ -103,6 +148,7 @@ def main():
     parser.add_argument('--top', type=int, default=10, help='匹配 Top N')
     parser.add_argument('--send', action='store_true', help='自动发送消息')
     parser.add_argument('--dry-run', action='store_true', help='模拟发送')
+    parser.add_argument('--no-greeting', action='store_true', help='跳过 LLM 招呼语生成')
     args = parser.parse_args()
 
     log('info', '=' * 50)
@@ -121,8 +167,17 @@ def main():
 
     jobs_path = save_jobs(jobs, args.query, args.city)
 
-    log('info', f'\n搜索完成！共 {len(jobs)} 个职位')
-    log('info', f'职位数据: {jobs_path}')
+    log('ok', f'搜索完成！共 {len(jobs)} 个职位')
+    log('ok', f'职位数据: {jobs_path}')
+
+    # Step 2: Generate greetings for each job
+    greetings = []
+    if not args.no_greeting:
+        greetings = generate_greetings(jobs, resume)
+        count = sum(1 for g in greetings if g)
+        log('ok', f'招呼语生成完成: {count}/{len(jobs)} 条')
+    else:
+        log('info', '跳过招呼语生成 (--no-greeting)')
 
     # Output for agent consumption
     print('\n===SEARCH_RESULT===')
@@ -134,10 +189,14 @@ def main():
         'top_n': args.top,
         'send': args.send,
         'dry_run': args.dry_run,
-        'first_5': [
-            {'title': j['title'], 'company': j['company'], 'salary': j['salary'],
-             'skills': j.get('skills', []), 'job_id': j['job_id']}
-            for j in jobs[:5]
+        'greetings_generated': sum(1 for g in greetings if g),
+        'jobs_with_greetings': [
+            {
+                'title': j['title'], 'company': j['company'], 'salary': j['salary'],
+                'skills': j.get('skills', []), 'job_id': j['job_id'],
+                'greeting': greetings[i] if i < len(greetings) else ''
+            }
+            for i, j in enumerate(jobs)
         ]
     }, ensure_ascii=False, indent=2))
     print('===SEARCH_RESULT_END===')
