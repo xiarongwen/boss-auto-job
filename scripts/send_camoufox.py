@@ -91,14 +91,13 @@ def main():
     from camoufox.sync_api import Camoufox
 
     with Camoufox(humanize=True, geoip=True, os="macos", block_images=False) as browser:
-        context = browser.contexts[0]
+        # NOTE: browser.contexts is empty for Camoufox — use browser.new_page() directly
+        page = browser.new_page()
 
         cookies = load_cookies()
         if cookies:
-            context.add_cookies(cookies)
+            page.context.add_cookies(cookies)
             print(f"[send] Loaded {len(cookies)} cookies")
-
-        page = context.new_page()
 
         # Step 1: Visit search page to establish context
         print("[step1] Establishing session...")
@@ -191,7 +190,7 @@ def main():
                 print(f"\n✅ 消息发送成功！（仅用 jobId）")
             else:
                 print(f"\n❌ 发送失败: {result.get('message', result.get('error', ''))}")
-            save_cookies(context)
+            save_cookies(page.context)
             return
 
         # Step 3: Send message
@@ -224,7 +223,7 @@ def main():
             print(f"\n❌ 发送失败: {result.get('message', result.get('error', ''))}")
 
         # Save updated cookies
-        save_cookies(context)
+        save_cookies(page.context)
 
 
 if __name__ == "__main__":

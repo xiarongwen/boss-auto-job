@@ -58,15 +58,14 @@ def search_jobs(query: str, city: str, pages: int) -> list:
         os="macos",        # Fingerprint as macOS
         block_images=False, # Need images for captcha if triggered
     ) as browser:
-        context = browser.contexts[0]
+        # NOTE: browser.contexts is empty for Camoufox — use browser.new_page() directly
+        page = browser.new_page()
 
         # Load cookies if available (not required but may help)
         cookies = load_cookies()
         if cookies:
-            context.add_cookies(cookies)
+            page.context.add_cookies(cookies)
             print(f"[search] Loaded {len(cookies)} cookies")
-
-        page = context.new_page()
 
         for page_num in range(1, pages + 1):
             url = f"https://www.zhipin.com/web/geek/job?query={query}&city={city}&page={page_num}"
