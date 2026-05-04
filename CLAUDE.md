@@ -18,16 +18,6 @@ pip install "camoufox[geoip]" && camoufox fetch
 
 简历文件：`~/.hermes/credentials/resume.txt`
 
-### LLM 招呼语生成配置（可选但推荐）
-
-```bash
-export BOSS_LLM_API_KEY="sk-xxx"           # 或 OPENAI_API_KEY
-export BOSS_LLM_BASE_URL="https://api.openai.com/v1"  # 或 OPENAI_BASE_URL
-export BOSS_LLM_MODEL="gpt-4o-mini"        # 或 OPENAI_MODEL
-```
-
-未配置时自动降级为简单 fallback 模板。
-
 ## 工具
 
 项目路径下有一个 `boss` CLI，支持以下命令：
@@ -75,36 +65,21 @@ export BOSS_LLM_MODEL="gpt-4o-mini"        # 或 OPENAI_MODEL
 2. **搜索** — `./boss search "关键词" --city 城市 --area 区域`
 3. **匹配** — 如果用户有简历，加 `--match --top N`
 4. **展示结果** — 列出匹配度最高的职位，让用户选择
-5. **生成招呼语** — 根据 JD + 简历，用 LLM 自动生成个性化打招呼语（详见下方）
+5. **生成招呼语** — Agent 根据 JD + 简历内容直接生成个性化招呼语（见下方规则）
 6. **确认发送** — 让用户确认后再发（不要自动发！）
 7. **发送** — `./boss send <job_id> "招呼语"`
 
-## 招呼语生成
+## 招呼语生成规则
 
-**不再使用固定模板。** 招呼语由 LLM 分析 JD 和简历的实际内容后自动生成。
+**不使用固定模板。** Agent 根据每个职位的 JD 和候选人简历直接生成个性化招呼语。
 
-### 生成方式
-
-```bash
-# 方式1: boss_apply.py 流水线自动生成（推荐）
-python boss_apply.py "AI工程师" --pages=2
-# 输出 JSON 中 jobs_with_greeting 字段已包含每个职位的个性化招呼语
-
-# 方式2: 独立生成
-echo '{"title":"AI工程师","company":"某科技","requirements":["Python"],"jd_text":"负责..."}' | \
-  python scripts/generate_greeting.py --stdin
-
-# 方式3: --auto 模式
-python scripts/send_camoufox.py <job_id> --auto
-```
-
-### 生成规则（由 LLM prompt 控制）
-- 基于 JD 和简历的实际内容分析 2-3 个匹配亮点
-- 不使用固定模板，每条消息独特
-- 语气自然真诚，不像在念简历
-- 不以"您好"千篇一律开头
-- 80-150 个中文字符
-- 结尾礼貌表达沟通意愿
+- 从 JD 提取 2-3 个关键需求，与简历中的对应经验/技能匹配
+- 语气自然真诚，像在和招聘者对话，不要像在念简历
+- 不要以"您好"千篇一律开头，用更自然的方式切入
+- 体现对该具体公司/岗位的兴趣（从 JD 中提取线索）
+- 总长度 80-150 个中文字符
+- 结尾礼貌地表达沟通意愿
+- 每条消息都应该是独特的，体现这个 JD 和这份简历的特定匹配点
 
 ## 安全规则（必须遵守）
 

@@ -27,10 +27,45 @@ Usage:
 
 import argparse
 import json
+import os
+import subprocess
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
+
+# Auto-detect correct Python with camoufox installed
+def _find_python():
+    """Find a Python interpreter that has camoufox installed."""
+    candidates = [
+        sys.executable,
+        '/Volumes/SamsungPSS/opt/anaconda3/bin/python',
+        '/opt/homebrew/bin/python3',
+        '/usr/local/bin/python3',
+    ]
+    # Also check conda envs
+    conda_base = os.environ.get('CONDA_PREFIX', '')
+    if conda_base:
+        candidates.insert(0, os.path.join(conda_base, 'bin', 'python'))
+    for p in candidates:
+        if p and os.path.exists(p):
+            try:
+                result = subprocess.run([p, '-c', 'import camoufox'], capture_output=True, timeout=5)
+                if result.returncode == 0:
+                    return p
+            except:
+                pass
+    return None
+
+# Re-exec with correct Python if needed
+try:
+    from camoufox.sync_api import Camoufox
+except ImportError:
+    _py = _find_python()
+    if _py and _py != sys.executable:
+        os.execv(_py, [_py] + sys.argv)
+    print("ERROR: camoufox not installed. Run: pip install 'camoufox[geoip]' && camoufox fetch", file=sys.stderr)
+    sys.exit(1)
 
 # ============================================================
 # Config

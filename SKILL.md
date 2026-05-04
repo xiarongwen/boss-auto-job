@@ -212,44 +212,29 @@ delegate_task(tasks=tasks)
 
 Collect all scores, sort descending. Default keep top 10.
 
-## Step 5: Generate Introduction (LLM-Powered)
+## Step 5: Generate Introduction (Agent-Powered)
 
-**不再使用固定模板**。招呼语由 LLM 根据 JD 和简历的实际内容自动生成。
+**不再使用固定模板，也不调外部 API。** 招呼语由 Agent 自己根据 JD 和简历的内容直接生成。
 
-### 独立使用
-```bash
-# 从 JD JSON 文件生成
-python scripts/generate_greeting.py --jd=job.json
+Agent 就是 LLM，它读取搜索结果中的 JD 信息和简历内容后，直接写出个性化招呼语。
+无需额外的 Python 脚本或 API 配置。
 
-# 从 stdin 传入 JD
-echo '{"title":"AI工程师","company":"某科技","requirements":["Python","深度学习"],"jd_text":"负责..."}' | python scripts/generate_greeting.py --stdin
-```
-
-### LLM API 配置
-使用任意 OpenAI 兼容 API，通过环境变量配置：
-```bash
-export BOSS_LLM_API_KEY="sk-xxx"           # 或 OPENAI_API_KEY
-export BOSS_LLM_BASE_URL="https://api.openai.com/v1"  # 或 OPENAI_BASE_URL
-export BOSS_LLM_MODEL="gpt-4o-mini"        # 或 OPENAI_MODEL
-```
-
-### 生成逻辑
-LLM 会分析 JD 中的具体要求和简历中的匹配亮点，生成个性化招呼语：
-- 从 JD 提取 2-3 个关键需求，与简历中的对应经验匹配
-- 语气自然真诚，不像固定模板那样千篇一律
+### 生成规则（Agent 内部遵循）
+- 基于 JD 和简历的实际内容分析 2-3 个匹配亮点（技能/经验/项目）
+- 不使用固定模板，每条消息都独特
+- 语气自然真诚，像在和招聘者对话
+- 不以"您好"千篇一律开头，用更自然的方式切入
+- 体现对该具体公司/岗位的兴趣（从 JD 中提取线索）
 - 控制在 80-150 个中文字符
-- 如果 LLM API 不可用，自动降级为简单 fallback 模板
+- 结尾礼貌表达沟通意愿
 
-### 在 boss_apply.py 流水线中自动生成
-```bash
-# 自动搜索 + 匹配 + LLM 生成招呼语
-python boss_apply.py "AI工程师"
-
-# 跳过招呼语生成（节省 API 调用）
-python boss_apply.py "AI工程师" --no-greeting
+### Agent 工作流
 ```
-
-输出中的 `jobs_with_greetings` 字段已包含每个职位的个性化招呼语。
+1. 搜索结果返回后，Agent 读取每个职位的 title、company、requirements、jd_text
+2. 读取 resume.txt
+3. 对每个职位，Agent 直接生成个性化招呼语（这一步不需要调任何工具）
+4. 用 send_camoufox.py <job_id> "招呼语" 发送
+```
 
 ## Step 6: Send Application
 
@@ -284,8 +269,7 @@ boss-auto-job/
     search_browser.py         # Search via browser automation (legacy)
     search.py                 # requests-based search (deprecated)
     match.py                  # Multi-agent matching orchestrator
-    generate_greeting.py        # LLM 招呼语生成器（核心）
-    generate.py               # 招呼语生成（调用 generate_greeting.py）
+    generate.py               # Introduction prompt builder (reference)
     send_final.py             # Message sender (legacy)
     refresh_cookies.py        # Cookie refresh tool
     login.py                  # Login helper
@@ -435,11 +419,11 @@ python send_camoufox.py <job_id> "你好，我对这个职位很感兴趣"
 ### Agent Workflow (使用 boss_apply.py)
 
 1. **运行搜索**: `python boss_apply.py "关键词" --send`
-2. **解析输出**: 从 `===SEARCH_RESULT===` 块提取 jobs_with_greetings（已包含个性化招呼语）
+2. **解析输出**: 从 `===SEARCH_RESULT===` 块提取 jobs 列表（含 JD 详情）
 3. **并行匹配**: 用 `delegate_task(tasks=batches)` 对每批3个职位打分
 4. **排名筛选**: 按分数排序，取 Top N
-5. **使用预生成招呼语**: 无需再手动生成，直接用 jobs_with_greetings 中的 greeting 字段
-6. **发送消息**: 逐个调用 send_message()，间隔 3 秒
+5. **生成招呼语**: Agent 直接根据每个职位的 JD + 简历生成个性化招呼语（不调工具）
+6. **发送消息**: `python send_camoufox.py <job_id> "招呼语"`，间隔 5 秒
 
 ### 完整 Agent 代码模板
 

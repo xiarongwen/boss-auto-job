@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
 """
-BOSS Zhipin Auto Apply - Full Pipeline (Camoufox Edition)
-搜索 → 多Agent匹配 → 生成打招呼语 → 发送消息
+BOSS Zhipin Auto Apply - Search Pipeline (Camoufox Edition)
+搜索职位 → 输出 JSON 供 Agent 匹配和生成招呼语
 
 Usage:
-  python boss_apply.py "产品经理"                     # 搜索+匹配+生成
-  python boss_apply.py "产品经理" --send              # + 发送
-  python boss_apply.py "产品经理" --city=101020100    # 上海
-  python boss_apply.py "产品经理" --top=5             # Top 5
-  python boss_apply.py "产品经理" --send --dry-run    # 模拟
+  python boss_apply.py "产品经理"                  # 搜索
+  python boss_apply.py "产品经理" --city=101020100 # 上海
+  python boss_apply.py "产品经理" --pages=3        # 3页
 
 城市: 101010100=北京 101020100=上海 101280600=深圳 101210100=杭州
 """
 
 import json
 import sys
-import time
 import argparse
 import subprocess
 from pathlib import Path
@@ -34,7 +31,7 @@ CITY_NAMES = {
 
 def log(level, msg):
     ts = datetime.now().strftime('%H:%M:%S')
-    icons = {'info': '📋', 'ok': '✅', 'warn': '⚠️', 'err': '❌', 'search': '🔍', 'send': '📤'}
+    icons = {'info': '📋', 'ok': '✅', 'warn': '⚠️', 'err': '❌', 'search': '🔍'}
     print(f"[{ts}] {icons.get(level, '📋')} {msg}")
 
 
@@ -46,7 +43,7 @@ def load_resume() -> str:
 
 
 def search_jobs(query: str, city: str, pages: int) -> list:
-    """Step 1: Camoufox 搜索"""
+    """Camoufox 搜索"""
     log('search', f'搜索 "{query}" 城市={CITY_NAMES.get(city, city)} 页数={pages}')
     log('info', '使用 Camoufox (C++级指纹绕过)')
 
@@ -64,10 +61,6 @@ def search_jobs(query: str, city: str, pages: int) -> list:
         log('err', f'BOSS code {code}: 账户异常，需要手动验证')
         log('info', '请在 Chrome 中打开 zhipin.com 完成验证后告诉我')
         return []
-
-    if 'No jobs found' in output or '❌' in output.split('===JOBS_JSON_START===')[0] if '===JOBS_JSON_START===' in output else True:
-        # Check if we got JSON output anyway
-        pass
 
     # Parse JSON
     if '===JOBS_JSON_START===' in output:
@@ -95,60 +88,14 @@ def save_jobs(jobs: list, query: str, city: str) -> Path:
     return path
 
 
-def generate_greetings(jobs: list, resume: str) -> list:
-    """Generate personalized greetings using LLM for each job."""
-    log('info', '开始 LLM 生成个性化招呼语...')
-    gen_script = SCRIPTS_DIR / 'generate_greeting.py'
-
-    if not gen_script.exists():
-        log('warn', 'generate_greeting.py 不存在，跳过招呼语生成')
-        return ['' for _ in jobs]
-
-    greetings = []
-    for i, job in enumerate(jobs):
-        jd_data = {
-            'title': job.get('title', ''),
-            'company': job.get('company', ''),
-            'requirements': job.get('requirements', []),
-            'jd_text': job.get('jd_text', ''),
-        }
-        jd_json = json.dumps(jd_data, ensure_ascii=False)
-        try:
-            result = subprocess.run(
-                [sys.executable, str(gen_script), '--stdin'],
-                input=jd_json, capture_output=True, text=True, timeout=60,
-                cwd=str(SCRIPTS_DIR)
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                greeting = result.stdout.strip()
-                greetings.append(greeting)
-                log('ok', f'[{i+1}/{len(jobs)}] {job.get("title","")} @ {job.get("company","")}')
-                log('info', f'  -> {greeting[:80]}...' if len(greeting) > 80 else f'  -> {greeting}')
-            else:
-                greetings.append('')
-                log('warn', f'[{i+1}/{len(jobs)}] 生成失败: {result.stderr[:100]}')
-        except subprocess.TimeoutExpired:
-            greetings.append('')
-            log('warn', f'[{i+1}/{len(jobs)}] 超时')
-        except Exception as e:
-            greetings.append('')
-            log('warn', f'[{i+1}/{len(jobs)}] 异常: {e}')
-
-        if i < len(jobs) - 1:
-            time.sleep(1)
-
-    return greetings
-
-
 def main():
-    parser = argparse.ArgumentParser(description='BOSS Zhipin Auto Apply (Camoufox)')
+    parser = argparse.ArgumentParser(description='BOSS Zhipin Search (Camoufox)')
     parser.add_argument('query', help='搜索关键词')
     parser.add_argument('--city', default='101010100', help='城市代码')
     parser.add_argument('--pages', type=int, default=1, help='搜索页数')
     parser.add_argument('--top', type=int, default=10, help='匹配 Top N')
     parser.add_argument('--send', action='store_true', help='自动发送消息')
     parser.add_argument('--dry-run', action='store_true', help='模拟发送')
-    parser.add_argument('--no-greeting', action='store_true', help='跳过 LLM 招呼语生成')
     args = parser.parse_args()
 
     log('info', '=' * 50)
@@ -160,7 +107,7 @@ def main():
     resume = load_resume()
     log('info', f'简历: {resume[:60]}...')
 
-    # Step 1: Search
+    # Search
     jobs = search_jobs(args.query, args.city, args.pages)
     if not jobs:
         return
@@ -169,15 +116,6 @@ def main():
 
     log('ok', f'搜索完成！共 {len(jobs)} 个职位')
     log('ok', f'职位数据: {jobs_path}')
-
-    # Step 2: Generate greetings for each job
-    greetings = []
-    if not args.no_greeting:
-        greetings = generate_greetings(jobs, resume)
-        count = sum(1 for g in greetings if g)
-        log('ok', f'招呼语生成完成: {count}/{len(jobs)} 条')
-    else:
-        log('info', '跳过招呼语生成 (--no-greeting)')
 
     # Output for agent consumption
     print('\n===SEARCH_RESULT===')
@@ -189,14 +127,11 @@ def main():
         'top_n': args.top,
         'send': args.send,
         'dry_run': args.dry_run,
-        'greetings_generated': sum(1 for g in greetings if g),
-        'jobs_with_greetings': [
-            {
-                'title': j['title'], 'company': j['company'], 'salary': j['salary'],
-                'skills': j.get('skills', []), 'job_id': j['job_id'],
-                'greeting': greetings[i] if i < len(greetings) else ''
-            }
-            for i, j in enumerate(jobs)
+        'jobs': [
+            {'title': j['title'], 'company': j['company'], 'salary': j['salary'],
+             'skills': j.get('skills', []), 'job_id': j['job_id'],
+             'requirements': j.get('requirements', []), 'jd_text': j.get('jd_text', '')}
+            for j in jobs
         ]
     }, ensure_ascii=False, indent=2))
     print('===SEARCH_RESULT_END===')
