@@ -393,6 +393,59 @@ def cmd_resume(args):
         info("Create it with: echo 'your resume' > ~/.hermes/credentials/resume.txt")
 
 
+def cmd_optimize(args):
+    """根据 JD 针对性优化简历。"""
+    import json as _json
+
+    scripts = Path(__file__).parent / 'scripts'
+    sys.path.insert(0, str(scripts))
+
+    # 1. 解析简历
+    from parse_resume import parse_resume
+    print(f"[1/3] 解析简历: {args.resume}")
+    try:
+        resume_text = parse_resume(args.resume)
+        print(f"  ✅ 简历解析成功 ({len(resume_text)} 字符)")
+    except Exception as e:
+        print(f"  ❌ 简历解析失败: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 2. 获取 JD
+    from fetch_jd import fetch_jd
+    print(f"[2/3] 获取JD: {args.job}")
+    try:
+        jd = fetch_jd(args.job)
+        print(f"  ✅ {jd.get('title', '?')} @ {jd.get('company', '?')}")
+    except Exception as e:
+        print(f"  ❌ JD获取失败: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    # 3. 输出分析 prompt
+    from resume_optimizer import build_analysis_prompt, build_optimize_prompt
+    print("[3/3] 生成优化指令...")
+
+    result = {
+        "status": "ok",
+        "jd": jd,
+        "resume_length": len(resume_text),
+        "resume_text": resume_text,
+        "analysis_prompt": build_analysis_prompt(jd, resume_text),
+        "optimize_prompt": build_optimize_prompt(jd, resume_text),
+    }
+
+    if args.output:
+        out = Path(args.output)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(_json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        print(f"\n✅ 数据已保存: {args.output}")
+    else:
+        print(f"\n===RESUME_OPTIMIZER===")
+        print(_json.dumps(result, ensure_ascii=False, indent=2))
+        print(f"===RESUME_OPTIMIZER_END===")
+
+    print(f"\n💡 Agent 收到数据后会自动分析匹配度并生成优化后的简历。")
+
+
 def cmd_cities(args):
     """Show city codes."""
     print("\nCity codes for BOSS Zhipin:\n")
@@ -412,6 +465,7 @@ Examples:
   boss search "AI前端" --city 深圳 --match --top 5
   boss search "Agent开发" --match --send --top 3
   boss send <job_id> "你好，我对这个职位很感兴趣"
+  boss optimize <job_id> <resume.pdf>
   boss resume
   boss cities
         """
@@ -436,6 +490,13 @@ Examples:
     p_send.add_argument('job_id', help='encryptJobId from search results')
     p_send.add_argument('message', help='Greeting message')
     p_send.set_defaults(func=cmd_send)
+
+    # optimize
+    p_opt = sub.add_parser('optimize', help='根据JD针对性优化简历')
+    p_opt.add_argument('job', help='job_id 或 BOSS职位URL')
+    p_opt.add_argument('resume', help='简历文件 (PDF/DOCX/DOC/TXT)')
+    p_opt.add_argument('-o', '--output', help='保存报告到文件')
+    p_opt.set_defaults(func=cmd_optimize)
 
     # resume
     p_resume = sub.add_parser('resume', help='Show current resume')

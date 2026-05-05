@@ -1,3 +1,7 @@
 requests>=2.31.0
 beautifulsoup4>=4.12.0
 lxml>=4.9.0
+# Resume parsing (PDF)
+pymupdf>=1.23.0
+# Resume parsing (Word)
+python-docx>=0.8.11
