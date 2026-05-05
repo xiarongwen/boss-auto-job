@@ -406,6 +406,12 @@ python search_camoufox.py "Python" --city=101010100 --pages=3
 
 # 单独发送
 python send_camoufox.py <job_id> "你好，我对这个职位很感兴趣"
+
+# 首次使用 / Cookie 过期时（会自动弹出扫码登录）
+python send_camoufox.py <job_id> "你好，我对这个职位很感兴趣"
+# → 🔐 未登录或登录已过期，需要重新扫码登录
+# → 请用手机 BOSS App 扫描页面上的二维码
+# → 登录成功后自动保存 Cookie，下次无需再次扫码
 ```
 
 **底层引擎: Camoufox (C++级Firefox指纹修改)**
@@ -413,8 +419,13 @@ python send_camoufox.py <job_id> "你好，我对这个职位很感兴趣"
 - humanize=True: C++ HumanCursor 鼠标/键盘/滚动模拟
 - geoip=True: 自动根据IP设置时区/语言
 - BrowserForge: 统计分布的真实设备指纹
-- 无需登录Cookie即可通过BOSS所有4层风控检测
 - 安装: `camoufox fetch` (下载~100MB Firefox二进制)
+
+**登录认证说明:**
+- BOSS 直聘的 Cookie 绑定浏览器指纹（TLS/JA3/Canvas）
+- 外部导入的 Cookie（如从 Chrome 导出）在 Camoufox（Firefox 内核）中会触发 Code 17
+- `send_camoufox.py` 检测到 Code 17 时**自动弹出扫码登录页**，用户在 Camoufox 内登录后 Cookie 与指纹一致
+- 登录成功后 Cookie 保存到 `~/.agent-browser/auth/boss-zhipin.json`，后续发送自动复用
 
 ### Agent Workflow (使用 boss_apply.py)
 
