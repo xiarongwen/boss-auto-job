@@ -53,6 +53,7 @@ pip install "camoufox[geoip]" && camoufox fetch
 ### 其他
 
 ```bash
+./boss optimize <job_id> <resume.pdf>   # 根据JD优化简历（支持PDF/Word）
 ./boss resume       # 查看简历
 ./boss cities       # 查看城市代码
 ```
