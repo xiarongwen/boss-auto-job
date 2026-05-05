@@ -12,6 +12,7 @@
 
 - 🔍 **智能搜索** — 多关键词、多城市、多页搜索
 - 🧠 **简历匹配** — 按技能/经验/学历/行业多维度打分
+- 📝 **简历优化** — 根据 JD 针对性优化简历（支持 PDF/Word）
 - 📤 **自动发送** — 定制打招呼语一键发送
 - 🛡️ **完全隐身** — Camoufox C++ 级指纹修改，通过所有反 bot 检测
 - 🤖 **Agent 原生** — `AGENTS.md` / `CLAUDE.md` / `.cursorrules` 即插即用
@@ -67,6 +68,10 @@ Agent 会自动读取 `CLAUDE.md` 或 `.cursorrules`，知道怎么用 `boss` CL
 # 发送消息
 ./boss send <job_id> "你好，我对这个职位很感兴趣"
 
+# 根据 JD 针对性优化简历（支持 PDF/Word/DOCX/TXT）
+./boss optimize <job_id> <resume.pdf>
+./boss optimize <job_id> ~/resumes/resume.docx -o report.json
+
 # 查看简历
 ./boss resume
 
@@ -93,6 +98,52 @@ python scripts/send_camoufox.py <job_id> "消息"
 | Hermes Agent | `SKILL.md` | ✅ 自动加载 |
 | 其他 Agent | `AGENTS.md` | ✅ 通用格式 |
 
+## 📝 简历优化
+
+针对特定 JD 针对性优化你的简历，支持 PDF / Word / TXT 格式。
+
+### 工作流程
+
+```
+1. 输入目标职位（job_id 或 URL）+ 简历文件（PDF/Word）
+2. 解析简历为纯文本（pymupdf 处理 PDF，python-docx 处理 Word）
+3. Camoufox 隐身访问 BOSS 获取完整 JD
+4. Agent 自动分析：匹配度打分 / 优势 / 差距 / 关键词匹配
+5. Agent 生成优化后的简历（保留真实经历，调整表达和侧重点）
+6. 输出完整报告（匹配分析 + 优化建议 + 优化后简历）
+```
+
+### 使用方式
+
+```bash
+# 安装依赖
+pip install pymupdf python-docx
+
+# 优化简历
+./boss optimize <job_id> <resume.pdf>
+
+# 保存报告到文件
+./boss optimize <job_id> <resume.docx> -o report.json
+```
+
+### 支持格式
+
+| 格式 | 扩展名 | 依赖 |
+|------|--------|------|
+| PDF | `.pdf` | pymupdf / pdfplumber / PyPDF2 |
+| Word | `.docx` | python-docx |
+| 旧版 Word | `.doc` | LibreOffice / antiword |
+| 纯文本 | `.txt` | 无 |
+
+### 优化规则
+
+- ✅ 保留真实经历，不编造不夸大
+- ✅ 将与 JD 匹配的经历放在更显眼的位置
+- ✅ 自然融入 JD 要求的关键词
+- ✅ 将模糊描述改为量化表达
+- ✅ 弱化与 JD 无关的经历
+- ✅ 输出标准简历格式，控制篇幅
+
 ## 📁 项目结构
 
 ```
@@ -109,8 +160,12 @@ boss-auto-job/
 ├── LICENSE                    # MIT License
 └── scripts/
     ├── boss_apply.py          # 🎯 一键流水线
+    ├── boss_optimize.py       # 📝 简历优化 CLI
     ├── search_camoufox.py     # 🔍 Camoufox 搜索
     ├── send_camoufox.py       # 📤 Camoufox 发送
+    ├── fetch_jd.py            # 📋 JD 爬取
+    ├── parse_resume.py        # 📄 简历解析（PDF/Word）
+    ├── resume_optimizer.py    # 🧠 简历优化器
     ├── match.py               # 多 Agent 匹配
     ├── generate.py            # 生成打招呼语
     └── ...                    # 其他脚本
